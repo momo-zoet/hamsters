@@ -166,7 +166,7 @@ function viewWeight(){
     '<div class="stat"><span>維持熱量（粗估）</span><b>'+(a.maint?fmt(a.maint,0)+' kcal/天':'-')+'</b></div>'+
     '<div class="stat"><span>目前攝取（推算）</span><b>'+(a.intake!==undefined?fmt(a.intake)+' kcal/天':'-')+'</b></div>'+
     (function(){const v=avgIntake(h);return v?'<div class="stat"><span>實測進食（近 7 天，'+v.days+' 天有記錄）</span><b>'+fmt(v.avg)+' kcal/天</b></div>':''})()+
-    (h.goal==='lose'?'<div class="stat"><span>預估達標</span><b>'+(a.eta?a.eta+' 天後 ('+addDays(todayStr(),a.eta).slice(5)+')':(h.target?'依目前趨勢無法達標':'請設定目標體重'))+'</b></div>':'')+
+    (h.goal==='lose'?'<div class="stat"><span>預估達標</span><b>'+(a.eta?a.eta+' 天後 ('+addDays(todayStr(),a.eta).slice(5)+')':(h.target?'依目前趨勢無法達標':'55.0 g'))+'</b></div>':'')+
     '</div>';
   if(a.tr&&a.tr.slope===null)stats+='<p class="mute">趨勢需要至少跨 3 天的記錄。</p>';
   const msgs=a.msgs.map(m=>'<div class="msg '+m[0]+'">'+esc(m[1])+'</div>').join('');
