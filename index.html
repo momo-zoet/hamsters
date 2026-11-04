@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>倉鼠健康管家</title>
+<style>
+:root{--bg:#faf6f0;--card:#fff;--ink:#2d2a26;--mute:#7a736a;--line:#e8e0d4;--acc:#d9822b;--good:#4f8a6b;--bad:#c9473d;--warn:#c98f10;--soft:#f4ede2}
+@media(prefers-color-scheme:dark){:root{--bg:#1c1a17;--card:#262320;--ink:#f0ebe3;--mute:#a39b8f;--line:#3a3530;--acc:#f0a050;--good:#6bb08c;--bad:#e8695f;--warn:#e8bb45;--soft:#302b26}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 12px}
+h2{font-size:16px;margin:0 0 10px}
+.tabs,.pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer}
+button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff;border-radius:8px}
+button.ghost{border-radius:8px;padding:4px 10px;font-size:13px;color:var(--mute)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.stat{background:var(--soft);border-radius:10px;padding:10px}
+.stat b{display:block;font-size:20px}
+.stat span{color:var(--mute);font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:8px 0}
+label{display:flex;flex-direction:column;font-size:12px;color:var(--mute);gap:2px}
+input,select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px;min-width:0}
+input[type=number]{width:110px}
+input[type=date]{width:150px}
+.msg{border-radius:10px;padding:8px 10px;margin:8px 0;font-size:14px}
+.msg.warn{background:rgba(201,143,16,.15);border:1px solid var(--warn)}
+.msg.bad{background:rgba(201,71,61,.13);border:1px solid var(--bad)}
+.msg.good{background:rgba(79,138,107,.14);border:1px solid var(--good)}
+.msg.info{background:var(--soft)}
+.mute{color:var(--mute);font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left}
+.item{border-top:1px solid var(--line);padding:12px 0}
+.item:first-of-type{border-top:0}
+.big{font-size:22px;font-weight:700}
+.red{color:var(--bad)}.amber{color:var(--warn)}.green{color:var(--good)}
+svg{width:100%;height:auto;display:block}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--mute);flex-wrap:wrap}
+details summary{cursor:pointer;color:var(--mute);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🐹 倉鼠健康管家</h1>
+  <div class="tabs" id="tabs"></div>
+  <div id="view"></div>
+  <p class="mute">資料只存在這個瀏覽器（localStorage）。換手機或清除瀏覽器資料前，請到「備份」匯出 JSON。熱量為粗估，僅供參考，不能取代獸醫判斷。</p>
+</div>
+<script>
+const KEY='hamster-app-v1';
+const pad=n=>String(n).padStart(2,'0');
+const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
+const dayNum=s=>{const [y,m,d]=s.split('-').map(Number);return Date.UTC(y,m-1,d)/864e5};
+const addDays=(s,n)=>{const t=new Date((dayNum(s)+n)*864e5);return t.getUTCFullYear()+'-'+pad(t.getUTCMonth()+1)+'-'+pad(t.getUTCDate())};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=()=>Math.random().toString(36).slice(2,9);
+const byD=(a,b)=>dayNum(a.d)-dayNum(b.d);
+const fmt=(n,k=1)=>Number(n).toFixed(k);
+
+function defaults(){
+  const t=todayStr();
+  return {
+    hamsters:[
+      {id:'yu',name:'芋泥球',emoji:'🤍',info:'銀狐鼠・女生',ageMonths:15,goal:'maintain',target:null,kcalPerG:6,activity:1.8,weights:[{d:t,w:48}]},
+      {id:'di',name:'地瓜球',emoji:'🍠',info:'布丁鼠・男生',ageMonths:5,goal:'lose',target:null,kcalPerG:6,activity:1.8,weights:[{d:t,w:63}]}
+    ],
+    chew:[],
+    mood:[],
+    foods:[],
+    intake:[]
+  };
+}
+let S;
+function load(){try{const r=localStorage.getItem(KEY);if(r){S=JSON.parse(r);if(!S.mood)S.mood=[];if(!S.chew)S.chew=[];if(!S.foods)S.foods=[];if(!S.intake)S.intake=[];return}}catch(e){}S=defaults()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+load();
+let tab='weight',cur=S.hamsters[0].id;
+const H=()=>S.hamsters.find(h=>h.id===cur)||S.hamsters[0];
+const $=id=>document.getElementById(id);
+const val=id=>$(id).value;
+
+/* ---------- 體重計算 ---------- */
+function sortedW(h){return [...h.weights].sort(byD)}
+function trend(ws){
+  if(ws.length<2)return null;
+  const last=dayNum(ws[ws.length-1].d);
+  let pts=ws.filter(p=>last-dayNum(p.d)<=14);
+  if(pts.length<2)pts=ws.slice(-2);
+  const xs=pts.map(p=>dayNum(p.d)),ys=pts.map(p=>p.w),n=xs.length;
+  const mx=xs.reduce((a,b)=>a+b)/n,my=ys.reduce((a,b)=>a+b)/n;
+  let sxx=0,sxy=0;
+  for(let i=0;i<n;i++){sxx+=(xs[i]-mx)**2;sxy+=(xs[i]-mx)*(ys[i]-my)}
+  const span=xs[n-1]-xs[0];
+  if(sxx===0||span<3)return {slope:null,span,n};
+  return {slope:sxy/sxx,span,n};
+}
+function analyze(h){
+  const ws=sortedW(h);
+  if(!ws.length)return {ws,cur:null};
+  const c=ws[ws.length-1].w;
+  const tr=trend(ws);
+  const kg=c/1000;
+  const maint=70*Math.pow(kg,0.75)*(h.activity||1.8);
+  const out={ws,cur:c,tr,maint,msgs:[]};
+  if(tr&&tr.slope!==null){
+    const s=tr.slope;
+    out.perWeek=s*7;
+    out.pctWeek=s*7/c*100;
+    out.balance=s*(h.kcalPerG||6);
+    out.intake=maint+out.balance;
+    if(h.target&&s<0&&c>h.target)out.eta=Math.ceil((c-h.target)/(-s));
+  }
+  const lastD=ws[ws.length-1].d;
+  const recent=ws.filter(p=>dayNum(lastD)-dayNum(p.d)<=30);
+  const peak=Math.max(...recent.map(p=>p.w));
+  out.drop30=(peak-c)/peak*100;
+  if(out.drop30>=10)out.msgs.push(['bad','30 天內體重已比高點下降 '+fmt(out.drop30)+'%，超過 10%。建議盡快請獸醫檢查，不要繼續控制飲食。']);
+  if(out.pctWeek!==undefined){
+    if(h.goal==='lose'&&out.pctWeek<-3)out.msgs.push(['warn','每週下降約 '+fmt(-out.pctWeek)+'%，偏快。小動物減重建議放慢，倉鼠一週約 1–2% 以內較穩。']);
+    if(h.goal==='lose'&&out.pctWeek>0.5)out.msgs.push(['info','目前趨勢是增加中（每週 +'+fmt(out.pctWeek)+'%），還沒有進入減重。']);
+    if(h.goal==='maintain'&&Math.abs(out.pctWeek)>3)out.msgs.push(['warn','每週體重變動約 '+fmt(out.pctWeek)+'%，對「維持」目標來說波動偏大，建議多觀察並確認食量。']);
+    if(h.goal==='maintain'&&Math.abs(out.pctWeek)<=1.5)out.msgs.push(['good','體重很穩定，維持得不錯。']);
+  }
+  if(h.goal==='lose'&&h.ageMonths<8)out.msgs.push(['info','目前約 '+h.ageMonths+' 個月，還在成長期，體重變化可能是長大而不是變胖。減重前建議先請獸醫評估合理的目標體重。']);
+  if(h.target&&c<=h.target&&h.goal==='lose')out.msgs.push(['good','已達到目標體重 '+h.target+' g，可以改成「維持」模式。']);
+  return out;
+}
+
+function chart(h,a){
+  const ws=a.ws;
+  if(ws.length<2)return '<p class="mute">至少記錄 2 筆體重才會畫出曲線。</p>';
+  const W=640,Hh=240,L=44,R=12,T=14,B=28;
+  const xs=ws.map(p=>dayNum(p.d));
+  const x0=Math.min(...xs),x1=Math.max(...xs),xr=Math.max(x1-x0,1);
+  let ys=ws.map(p=>p.w);
+  if(h.target)ys=ys.concat([h.target]);
+  const y0=Math.min(...ys)-2,y1=Math.max(...ys)+2;
+  const X=d=>L+(dayNum(d)-x0)/xr*(W-L-R);
+  const Y=w=>T+(y1-w)/(y1-y0)*(Hh-T-B);
+  const avg=ws.map(p=>{const dn=dayNum(p.d);const win=ws.filter(q=>dn-dayNum(q.d)>=0&&dn-dayNum(q.d)<=6);return {d:p.d,w:win.reduce((s,q)=>s+q.w,0)/win.length}});
+  let g='';
+  for(let i=0;i<=4;i++){const v=y0+(y1-y0)*i/4;g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v)+'" y2="'+Y(v)+'" stroke="var(--line)"/><text x="'+(L-6)+'" y="'+(Y(v)+4)+'" text-anchor="end" font-size="11" fill="var(--mute)">'+fmt(v,0)+'</text>'}
+  g+='<text x="'+L+'" y="'+(Hh-8)+'" font-size="11" fill="var(--mute)">'+ws[0].d.slice(5)+'</text><text x="'+(W-R)+'" y="'+(Hh-8)+'" text-anchor="end" font-size="11" fill="var(--mute)">'+ws[ws.length-1].d.slice(5)+'</text>';
+  if(h.target)g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(h.target)+'" y2="'+Y(h.target)+'" stroke="var(--good)" stroke-dasharray="5 4"/><text x="'+(W-R)+'" y="'+(Y(h.target)-4)+'" text-anchor="end" font-size="11" fill="var(--good)">目標 '+h.target+'g</text>';
+  const raw=ws.map(p=>X(p.d)+','+Y(p.w)).join(' ');
+  const av=avg.map(p=>X(p.d)+','+Y(p.w)).join(' ');
+  g+='<polyline points="'+raw+'" fill="none" stroke="var(--mute)" stroke-width="1.5" opacity=".6"/>';
+  g+='<polyline points="'+av+'" fill="none" stroke="var(--acc)" stroke-width="3"/>';
+  g+=ws.map(p=>'<circle cx="'+X(p.d)+'" cy="'+Y(p.w)+'" r="3.5" fill="var(--card)" stroke="var(--acc)" stroke-width="2"><title>'+p.d+'：'+p.w+' g</title></circle>').join('');
+  return '<svg viewBox="0 0 '+W+' '+Hh+'" role="img" aria-label="體重曲線">'+g+'</svg><div class="legend"><span>● 每日體重</span><span style="color:var(--acc)">━ 7 日平均</span>'+(h.target?'<span style="color:var(--good)">┅ 目標</span>':'')+'</div>';
+}
+
+function viewWeight(){
+  const h=H(),a=analyze(h);
+  let pills='<div class="pills">'+S.hamsters.map(x=>'<button class="'+(x.id===cur?'on':'')+'" onclick="pick(\''+x.id+'\')">'+x.emoji+' '+esc(x.name)+'</button>').join('')+'</div>';
+  let stats='<div class="grid">'+
+    '<div class="stat"><span>目前體重</span><b>'+(a.cur!==null?fmt(a.cur)+' g':'-')+'</b></div>'+
+    '<div class="stat"><span>近 14 天趨勢</span><b>'+(a.perWeek!==undefined?(a.perWeek>0?'+':'')+fmt(a.perWeek)+' g/週':'資料不足')+'</b></div>'+
+    '<div class="stat"><span>每週變化率</span><b>'+(a.pctWeek!==undefined?(a.pctWeek>0?'+':'')+fmt(a.pctWeek)+'%':'-')+'</b></div>'+
+    '<div class="stat"><span>熱量差（估）</span><b>'+(a.balance!==undefined?(a.balance>0?'盈餘 ':'赤字 ')+fmt(Math.abs(a.balance))+' kcal/天':'-')+'</b></div>'+
+    '<div class="stat"><span>維持熱量（粗估）</span><b>'+(a.maint?fmt(a.maint,0)+' kcal/天':'-')+'</b></div>'+
+    '<div class="stat"><span>目前攝取（推算）</span><b>'+(a.intake!==undefined?fmt(a.intake)+' kcal/天':'-')+'</b></div>'+
+    (function(){const v=avgIntake(h);return v?'<div class="stat"><span>實測進食（近 7 天，'+v.days+' 天有記錄）</span><b>'+fmt(v.avg)+' kcal/天</b></div>':''})()+
+    (h.goal==='lose'?'<div class="stat"><span>預估達標</span><b>'+(a.eta?a.eta+' 天後 ('+addDays(todayStr(),a.eta).slice(5)+')':(h.target?'依目前趨勢無法達標':'請設定目標體重'))+'</b></div>':'')+
+    '</div>';
+  if(a.tr&&a.tr.slope===null)stats+='<p class="mute">趨勢需要至少跨 3 天的記錄。</p>';
+  const msgs=a.msgs.map(m=>'<div class="msg '+m[0]+'">'+esc(m[1])+'</div>').join('');
+  const form='<div class="row"><label>日期<input type="date" id="wd" value="'+todayStr()+'"></label><label>體重 (g)<input type="number" id="ww" step="0.1" min="0" inputmode="decimal"></label><button class="primary" onclick="addWeight()">記錄體重</button></div>';
+  const rows=[...a.ws].reverse().slice(0,10).map(p=>'<tr><td>'+p.d+'</td><td>'+p.w+' g</td><td style="text-align:right"><button class="ghost" onclick="delWeight(\''+p.d+'\')">刪除</button></td></tr>').join('');
+  const settings='<details><summary>目標與熱量參數</summary><div class="row">'+
+    '<label>目標<select id="sg"><option value="lose"'+(h.goal==='lose'?' selected':'')+'>減重（控糖控澱粉）</option><option value="maintain"'+(h.goal==='maintain'?' selected':'')+'>維持（保持能量）</option></select></label>'+
+    '<label>目標體重 (g)<input type="number" id="st" step="0.1" value="'+(h.target||'')+'"></label>'+
+    '<label>月齡<input type="number" id="sa" value="'+h.ageMonths+'"></label>'+
+    '<label>每克體重約幾 kcal<input type="number" id="sk" step="0.1" value="'+h.kcalPerG+'"></label>'+
+    '<label>活動係數<input type="number" id="sc" step="0.1" value="'+h.activity+'"></label>'+
+    '<button class="primary" onclick="saveSettings()">儲存</button></div>'+
+    '<p class="mute">熱量差 = 每日體重變化（g）× 每克體重熱量。維持熱量用 70×體重(kg)^0.75×活動係數粗估，個體差異大。</p></details>';
+  return pills+'<div class="card"><h2>'+h.emoji+' '+esc(h.name)+' <span class="mute">'+esc(h.info)+'・'+(h.goal==='lose'?'減重中':'維持中')+'</span></h2>'+stats+msgs+'</div>'+
+    '<div class="card"><h2>體重曲線</h2>'+chart(h,a)+'</div>'+
+    '<div class="card"><h2>記錄體重</h2>'+form+'<table>'+rows+'</table>'+settings+'</div>';
+}
+
+/* ---------- 啃食 ---------- */
+const LV=['完全沒碰','只啃一點','正常啃食','啃很兇'];
+function viewChew(){
+  const h=H();
+  const pills='<div class="pills">'+S.hamsters.map(x=>'<button class="'+(x.id===cur?'on':'')+'" onclick="pick(\''+x.id+'\')">'+x.emoji+' '+esc(x.name)+'</button>').join('')+'</div>';
+  const opts=['蘋果木','磨牙玩具','花椰菜凍乾'].map(s=>'<option>'+s+'</option>').join('');
+  const list=S.chew.filter(c=>c.hid===h.id).sort(byD).reverse().slice(0,15).map(c=>'<tr><td>'+c.d.slice(5)+'</td><td>'+esc(c.item)+'</td><td>'+LV[c.lv]+(c.note?'・'+esc(c.note):'')+'</td><td style="text-align:right"><button class="ghost" onclick="delChew(\''+c.id+'\')">刪除</button></td></tr>').join('');
+  return pills+'<div class="card"><h2>'+h.emoji+' '+esc(h.name)+' 啃食狀況</h2><div class="row"><label>日期<input type="date" id="cd" value="'+todayStr()+'"></label><label>項目<select id="ci">'+opts+'<option>飼料</option><option>其他</option></select></label><label>狀況<select id="cl">'+LV.map((x,i)=>'<option value="'+i+'"'+(i===2?' selected':'')+'>'+x+'</option>').join('')+'</select></label><label>備註<input id="cn" placeholder="選填"></label><button class="primary" onclick="addChew()">記錄</button></div><table>'+(list||'<tr><td class="mute">還沒有記錄</td></tr>')+'</table></div>';
+}
+
+/* ---------- 備份 ---------- */
+function viewBackup(){
+  return '<div class="card"><h2>備份與還原</h2><p class="mute">資料存在這個瀏覽器裡。建議每週匯出一次。</p><div class="row"><button class="primary" onclick="exportData()">匯出 JSON</button><label>匯入 JSON<input type="file" id="imp" accept="application/json" onchange="importData(event)"></label></div><div class="row"><button class="ghost" onclick="resetAll()">清除全部資料</button></div></div>';
+}
+
+/* ---------- 動作 ---------- */
+function pick(id){cur=id;render()}
+function addWeight(){
+  const d=val('wd'),w=parseFloat(val('ww'));
+  if(!d||!(w>0)){alert('請輸入日期與體重');return}
+  const h=H();h.weights=h.weights.filter(p=>p.d!==d);h.weights.push({d,w});save();render();
+}
+function delWeight(d){const h=H();h.weights=h.weights.filter(p=>p.d!==d);save();render()}
+function saveSettings(){
+  const h=H();h.goal=val('sg');h.target=parseFloat(val('st'))||null;h.ageMonths=parseFloat(val('sa'))||h.ageMonths;h.kcalPerG=parseFloat(val('sk'))||6;h.activity=parseFloat(val('sc'))||1.8;save();render();
+}
+function addChew(){
+  S.chew.push({id:uid(),hid:H().id,d:val('cd')||todayStr(),item:val('ci'),lv:parseInt(val('cl')),note:val('cn').trim()});save();render();
+}
+function delChew(id){S.chew=S.chew.filter(c=>c.id!==id);save();render()}
+function exportData(){
+  const b=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='hamster-backup-'+todayStr()+'.json';a.click();
+}
+function importData(e){
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.hamsters)throw 0;S=d;if(!S.chew)S.chew=[];if(!S.mood)S.mood=[];if(!S.foods)S.foods=[];if(!S.intake)S.intake=[];cur=S.hamsters[0].id;save();render();alert('已匯入')}catch(x){alert('檔案格式不正確')}};
+  r.readAsText(f);
+}
+function resetAll(){if(confirm('這會清除所有記錄，確定嗎？')){S=defaults();cur=S.hamsters[0].id;save();render()}}
+
+/* ---------- 進食 ---------- */
+let editFoodId=null;
+const num=id=>{const v=parseFloat(val(id));return isNaN(v)?null:v};
+const isNil=v=>v===null||v===undefined;
+function foodKcal100(f){
+  if(f.kcal100>0)return {v:f.kcal100,src:'包裝標示',assumed:false};
+  const p=f.p||0,fa=f.f||0,fi=f.fi||0;
+  const assumed=isNil(f.m)||isNil(f.a);
+  const m=isNil(f.m)?10:f.m,a=isNil(f.a)?7:f.a;
+  const nfe=Math.max(0,100-p-fa-fi-m-a);
+  return {v:p*3.5+fa*8.5+nfe*3.5,src:'成分估算',assumed};
+}
+function entryKcal(e){
+  const f=S.foods.find(x=>x.id===e.foodId);
+  if(!f)return {g:0,k:0,type:'feed',name:'(已刪除)'};
+  const g=Math.max(0,(e.given||0)-(e.left||0));
+  return {g,k:g*foodKcal100(f).v/100,type:f.type,name:f.name};
+}
+function dayTotals(hid){
+  const m={};
+  S.intake.filter(e=>e.hid===hid).forEach(e=>{const r=entryKcal(e);const o=m[e.d]||(m[e.d]={feed:0,treat:0});o[r.type]+=r.k});
+  return m;
+}
+function avgIntake(h){
+  const m=dayTotals(h.id),t=dayNum(todayStr());
+  const ds=Object.keys(m).filter(d=>t-dayNum(d)<=6&&t-dayNum(d)>=0);
+  if(!ds.length)return null;
+  return {avg:ds.reduce((s,d)=>s+m[d].feed+m[d].treat,0)/ds.length,days:ds.length};
+}
+function parseLabel(raw){
+  let t=raw.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-65248)).replace(/％/g,'%').replace(/．/g,'.').replace(/\s+/g,'').toLowerCase();
+  const grab=names=>{
+    for(const n of names){
+      const m=t.match(new RegExp('(?:'+n+')[^0-9]{0,8}?(\\d+(?:\\.\\d+)?)'));
+      if(m){const v=parseFloat(m[1]);if(v>=0&&v<=100)return v}
+    }
+    return null;
+  };
+  const r={
+    p:grab(['粗蛋白質?','crudeprotein','蛋白質','protein']),
+    f:grab(['粗脂肪','crudefat','脂肪','fat']),
+    fi:grab(['粗纖維','crudefib(?:er|re)','纖維','fib(?:er|re)']),
+    m:grab(['水分','moisture']),
+    a:grab(['粗灰分','crudeash','灰分','ash']),
+    k:null
+  };
+  let m;
+  if((m=t.match(/(\d+(?:\.\d+)?)kcal\/?(?:100g|100克)/)))r.k=parseFloat(m[1]);
+  else if((m=t.match(/(\d{3,4}(?:\.\d+)?)kcal\/?(?:kg|公斤)/)))r.k=parseFloat(m[1])/10;
+  return r;
+}
+function setOcr(m){const e=document.getElementById('ocrmsg');if(e)e.textContent=m}
+function loadTess(){
+  return new Promise((res,rej)=>{
+    if(window.Tesseract)return res();
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload=res;s.onerror=()=>rej(new Error('無法載入辨識元件，請確認網路連線'));
+    document.head.appendChild(s);
+  });
+}
+async function ocrLabel(ev){
+  const f=ev.target.files[0];if(!f)return;
+  const img=$('ocrimg');img.src=URL.createObjectURL(f);img.style.display='block';
+  try{
+    setOcr('載入辨識元件…（第一次會下載中文字庫，約需一分鐘）');
+    await loadTess();
+    const res=await Tesseract.recognize(f,'chi_tra+eng',{logger:m=>{if(m.status==='recognizing text')setOcr('辨識中 '+Math.round(m.progress*100)+'%')}});
+    const text=res.data.text||'';
+    $('ocrraw').textContent=text;
+    const r=parseLabel(text);
+    const set=(id,v)=>{if(!isNil(v))$(id).value=v};
+    set('fp',r.p);set('ff',r.f);set('ffi',r.fi);set('fm',r.m);set('fa',r.a);set('fk',r.k);
+    const found=[['蛋白質',r.p],['脂肪',r.f],['纖維',r.fi],['水分',r.m],['灰分',r.a],['熱量',r.k]].filter(x=>!isNil(x[1])).map(x=>x[0]+' '+x[1]);
+    setOcr(found.length?'辨識到：'+found.join('、')+'。請對照照片逐項確認，沒抓到或看起來怪的請手動修正。':'沒有辨識到成分數字，請拍得更清楚一點（對準成分表、光線充足），或直接手動填寫。');
+  }catch(e){setOcr('辨識失敗：'+e.message+'。可以改用手動填寫。')}
+}
+function saveFood(){
+  const name=val('fn').trim();
+  if(!name){alert('請輸入名稱');return}
+  const o={id:editFoodId||uid(),name,type:val('ft'),p:num('fp'),f:num('ff'),fi:num('ffi'),m:num('fm'),a:num('fa'),kcal100:num('fk')};
+  if(!(o.kcal100>0)&&(isNil(o.p)||isNil(o.f))){alert('請至少填蛋白質與脂肪，或直接填包裝上的熱量');return}
+  const i=S.foods.findIndex(x=>x.id===o.id);
+  if(i>=0)S.foods[i]=o;else S.foods.push(o);
+  editFoodId=null;save();render();
+}
+function editFood(id){editFoodId=id;render();window.scrollTo(0,document.body.scrollHeight)}
+function cancelFood(){editFoodId=null;render()}
+function delFood(id){
+  const used=S.intake.some(e=>e.foodId===id);
+  if(confirm(used?'這個食物已有進食記錄，刪除後那些記錄的熱量會變成 0。確定刪除？':'確定刪除？')){S.foods=S.foods.filter(f=>f.id!==id);save();render()}
+}
+function addIntake(){
+  const g=num('ig');
+  if(isNil(g)||g<0){alert('請輸入放入的克數');return}
+  const l=num('il')||0;
+  if(l>g){alert('剩餘不能比放入的多');return}
+  S.intake.push({id:uid(),hid:H().id,d:val('idt')||todayStr(),foodId:val('ifd'),given:g,left:l});save();render();
+}
+function delIntake(id){S.intake=S.intake.filter(e=>e.id!==id);save();render()}
+function viewIntake(){
+  const h=H(),a=analyze(h);
+  const pills='<div class="pills">'+S.hamsters.map(x=>'<button class="'+(x.id===cur?'on':'')+'" onclick="pick(\''+x.id+'\')">'+x.emoji+' '+esc(x.name)+'</button>').join('')+'</div>';
+  const fopts=S.foods.map(f=>'<option value="'+f.id+'">'+(f.type==='treat'?'🍬 ':'🌾 ')+esc(f.name)+'</option>').join('');
+  const form=S.foods.length?
+    '<div class="row"><label>日期<input type="date" id="idt" value="'+todayStr()+'"></label><label>食物<select id="ifd">'+fopts+'</select></label><label>放入 (g)<input type="number" id="ig" step="0.1" min="0" inputmode="decimal"></label><label>隔天剩餘 (g)<input type="number" id="il" step="0.1" min="0" inputmode="decimal" placeholder="沒有就空白"></label><button class="primary" onclick="addIntake()">記錄</button></div><p class="mute">吃掉的量 = 放入 − 剩餘。倉鼠會把食物囤在窩裡，所以這是粗估；一天內可以記多筆（飼料、零食分開記）。</p>':
+    '<p class="mute">請先在下方「食物庫」新增飼料或零食。</p>';
+  const tot=dayTotals(h.id),ds=Object.keys(tot).sort().reverse().slice(0,7);
+  let sf=0,st=0;
+  const rows=ds.map(d=>{const t=tot[d],sum=t.feed+t.treat;sf+=t.feed;st+=t.treat;return '<tr><td>'+d.slice(5)+'</td><td>'+fmt(t.feed)+'</td><td>'+fmt(t.treat)+'</td><td><b>'+fmt(sum)+'</b></td><td>'+(a.maint?fmt(sum/a.maint*100,0)+'%':'-')+'</td></tr>'}).join('');
+  let msg='';
+  if(sf+st>0&&st/(sf+st)>0.1)msg='<div class="msg warn">近期零食占總熱量約 '+fmt(st/(sf+st)*100,0)+'%，高於常見建議的 10% 左右。體重要控制的話，可以先減少零食。</div>';
+  const summary='<div class="card"><h2>'+h.emoji+' '+esc(h.name)+' 每日熱量（kcal）</h2>'+(rows?'<table><tr><th>日期</th><th>飼料</th><th>零食</th><th>合計</th><th>占維持熱量</th></tr>'+rows+'</table>':'<p class="mute">還沒有記錄</p>')+msg+'<p class="mute">維持熱量是用體重粗估的，只看大方向。</p></div>';
+  const ents=S.intake.filter(e=>e.hid===h.id).sort(byD).reverse().slice(0,12).map(e=>{const r=entryKcal(e);return '<tr><td>'+e.d.slice(5)+'</td><td>'+esc(r.name)+'</td><td>'+e.given+(e.left?' − '+e.left:'')+' g</td><td>'+fmt(r.k)+' kcal</td><td style="text-align:right"><button class="ghost" onclick="delIntake(\''+e.id+'\')">刪除</button></td></tr>'}).join('');
+  const logCard='<div class="card"><h2>記錄進食／零食</h2>'+form+(ents?'<table>'+ents+'</table>':'')+'</div>';
+  const ed=S.foods.find(f=>f.id===editFoodId)||{};
+  const v=x=>isNil(x)?'':x;
+  const lib=S.foods.map(f=>{const k=foodKcal100(f);return '<tr><td>'+(f.type==='treat'?'🍬':'🌾')+' '+esc(f.name)+'</td><td>'+fmt(k.v,0)+' kcal/100g<br><span class="mute">'+k.src+(k.assumed?'・水分或灰分未填，以 10%／7% 估':'')+'</span></td><td style="text-align:right"><button class="ghost" onclick="editFood(\''+f.id+'\')">編輯</button><button class="ghost" onclick="delFood(\''+f.id+'\')">刪除</button></td></tr>'}).join('');
+  const foodForm='<h2 style="margin-top:14px">'+(editFoodId?'編輯食物':'新增食物')+'</h2>'+
+    '<div class="row"><label>📷 拍照／上傳成分標籤<input type="file" accept="image/*" onchange="ocrLabel(event)"></label></div>'+
+    '<p class="mute" id="ocrmsg">辨識在你的手機或電腦上進行，照片不會上傳。結果只是幫你預填，請務必對照包裝確認。</p>'+
+    '<img id="ocrimg" alt="標籤預覽" style="display:none;max-width:100%;max-height:220px;border-radius:8px;margin:6px 0">'+
+    '<details><summary>辨識到的原文</summary><pre id="ocrraw" style="white-space:pre-wrap;font-size:12px"></pre></details>'+
+    '<div class="row"><label>名稱／品牌<input id="fn" value="'+esc(ed.name||'')+'" placeholder="例如 某某倉鼠主食"></label><label>種類<select id="ft"><option value="feed"'+(ed.type!=='treat'?' selected':'')+'>飼料（主食）</option><option value="treat"'+(ed.type==='treat'?' selected':'')+'>零食</option></select></label></div>'+
+    '<div class="row"><label>粗蛋白 %<input type="number" id="fp" step="0.1" value="'+v(ed.p)+'"></label><label>粗脂肪 %<input type="number" id="ff" step="0.1" value="'+v(ed.f)+'"></label><label>粗纖維 %<input type="number" id="ffi" step="0.1" value="'+v(ed.fi)+'"></label><label>水分 %<input type="number" id="fm" step="0.1" value="'+v(ed.m)+'"></label><label>粗灰分 %<input type="number" id="fa" step="0.1" value="'+v(ed.a)+'"></label></div>'+
+    '<div class="row"><label>包裝有標熱量的話填 (kcal/100g)<input type="number" id="fk" step="0.1" value="'+v(ed.kcal100)+'"></label><button class="primary" onclick="saveFood()">'+(editFoodId?'儲存修改':'加入食物庫')+'</button>'+(editFoodId?'<button class="ghost" onclick="cancelFood()">取消</button>':'')+'</div>'+
+    '<p class="mute">沒標熱量時，用「蛋白質×3.5＋脂肪×8.5＋其餘碳水×3.5」估算（碳水 = 100 − 蛋白 − 脂肪 − 纖維 − 水分 − 灰分）。包裝上的成分通常是最低或最高保證值，所以結果是粗估。</p>';
+  const libCard='<div class="card"><h2>食物庫</h2>'+(lib?'<table>'+lib+'</table>':'<p class="mute">還沒有食物，先在下面新增。</p>')+foodForm+'</div>';
+  return pills+summary+logCard+libCard;
+}
+
+/* ---------- 心情 ---------- */
+const ACT=['懶洋洋','普通','活潑','超亢奮'],FR=['躲著不理','有點猶豫','願意聞手','願意上手'];
+function strip(list,key,labels){
+  if(!list.length)return '<p class="mute">還沒有記錄</p>';
+  return '<div style="display:flex;gap:6px;flex-wrap:wrap">'+list.map(m=>'<div style="text-align:center"><div title="'+m.d+'：'+labels[m[key]]+'" style="width:26px;height:26px;border-radius:6px;background:var(--acc);opacity:'+(0.25+0.25*m[key])+'"></div><small class="mute">'+m.d.slice(5).replace('-','/')+'</small></div>').join('')+'</div>';
+}
+function viewMood(){
+  const h=H();
+  const pills='<div class="pills">'+S.hamsters.map(x=>'<button class="'+(x.id===cur?'on':'')+'" onclick="pick(\''+x.id+'\')">'+x.emoji+' '+esc(x.name)+'</button>').join('')+'</div>';
+  const list=S.mood.filter(m=>m.hid===h.id).sort(byD);
+  const rows=[...list].reverse().slice(0,15).map(m=>'<tr><td>'+m.d.slice(5)+'</td><td>'+ACT[m.act]+'</td><td>'+FR[m.fr]+'</td><td>'+esc(m.note||'')+'</td><td style="text-align:right"><button class="ghost" onclick="delMood(\''+m.id+'\')">刪除</button></td></tr>').join('');
+  const opt=(arr,sel)=>arr.map((x,i)=>'<option value="'+i+'"'+(i===sel?' selected':'')+'>'+x+'</option>').join('');
+  return pills+'<div class="card"><h2>'+h.emoji+' '+esc(h.name)+' 今天的心情</h2><div class="row"><label>日期<input type="date" id="md" value="'+todayStr()+'"></label><label>活動量<select id="ma">'+opt(ACT,1)+'</select></label><label>親人程度<select id="mf">'+opt(FR,1)+'</select></label><label>備註<input id="mn" placeholder="例如：愛跑輪、被抓時咬手"></label><button class="primary" onclick="addMood()">記錄</button></div><p class="mute">同一天重複記錄會覆蓋前一筆。</p></div>'+
+    '<div class="card"><h2>最近 14 筆</h2><p class="mute" style="margin:0 0 4px">活動量（顏色越深越活躍）</p>'+strip(list.slice(-14),'act',ACT)+'<p class="mute" style="margin:12px 0 4px">親人程度（顏色越深越親人）</p>'+strip(list.slice(-14),'fr',FR)+'</div>'+
+    '<div class="card"><table>'+(rows||'<tr><td class="mute">還沒有記錄</td></tr>')+'</table></div>';
+}
+function addMood(){
+  const d=val('md')||todayStr(),hid=H().id;
+  S.mood=S.mood.filter(m=>!(m.hid===hid&&m.d===d));
+  S.mood.push({id:uid(),hid,d,act:parseInt(val('ma')),fr:parseInt(val('mf')),note:val('mn').trim()});save();render();
+}
+function delMood(id){S.mood=S.mood.filter(m=>m.id!==id);save();render()}
+
+function render(){
+  const T=[['weight','體重'],['intake','進食'],['mood','心情'],['chew','啃食'],['backup','備份']];
+  $('tabs').innerHTML=T.map(t=>'<button class="'+(tab===t[0]?'on':'')+'" onclick="tab=\''+t[0]+'\';render()">'+t[1]+'</button>').join('');
+  $('view').innerHTML=tab==='weight'?viewWeight():tab==='intake'?viewIntake():tab==='mood'?viewMood():tab==='chew'?viewChew():viewBackup();
+}
+render();
+</script>
+</body>
+</html>
